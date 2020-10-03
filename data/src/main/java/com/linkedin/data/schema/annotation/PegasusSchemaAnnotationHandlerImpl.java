@@ -77,5 +77,5 @@ public class PegasusSchemaAnnotationHandlerImpl implements SchemaAnnotationHandl
   {
     return new PathSpecBasedSchemaAnnotationVisitor(this);
   }
-
+  
 }

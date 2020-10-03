@@ -17,7 +17,8 @@ package com.linkedin.restli.tools.snapshot.check;
 
 import com.linkedin.data.schema.DataSchema;
 import com.linkedin.data.schema.NamedDataSchema;
-import com.linkedin.data.schema.PathSpec;
+import com.linkedin.data.schema.annotation.SchemaAnnotationHandler;
+import com.linkedin.data.schema.compatibility.AnnotationCompatibilityChecker;
 import com.linkedin.data.schema.compatibility.CompatibilityChecker;
 import com.linkedin.data.schema.compatibility.CompatibilityMessage;
 import com.linkedin.data.schema.compatibility.CompatibilityOptions;
@@ -31,16 +32,18 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.StringJoiner;
+import java.util.StringTokenizer;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.commons.cli.CommandLine;
@@ -65,7 +68,13 @@ public class PegasusSchemaSnapshotCompatibilityChecker
   private static final Logger _logger = LoggerFactory.getLogger(
       PegasusSchemaSnapshotCompatibilityChecker.class);
   private final CompatibilityInfoMap _infoMap = new CompatibilityInfoMap();
+  private static boolean _checkPegasusSchemaAnnotation = false;
+  private static boolean _checkExtensionSchemaAnnotation = false;
+  private static List<SchemaAnnotationHandler> _handlers = new ArrayList<>();
+
   private static final String PDL = ".pdl";
+  private static final String DEFAULT_PATH_SEPARATOR = File.pathSeparator;
+  private static List<SchemaAnnotationHandler.AnnotationCompatibilityResult> annotationCompatibilityResults = new ArrayList<>();
 
 
   static
@@ -87,7 +96,22 @@ public class PegasusSchemaSnapshotCompatibilityChecker
         .withLongOpt("report")
         .hasArg()
         .withDescription("Write the compatibility report into the provided file at the end of the execution.")
+        .isRequired()
         .create("report"));
+    _options.addOption(OptionBuilder.withArgName("annotation_handler_jarPaths")
+        .withLongOpt("jarPath")
+        .hasArgs()
+        .withDescription("path of the jars which contains the annotation handlers")
+        .create("jar"));
+    _options.addOption(OptionBuilder.withArgName("handler-classNames")
+        .withLongOpt("className")
+        .hasArgs()
+        .withDescription("class names of the handlers")
+        .create("className"));
+    _options.addOption(OptionBuilder.withArgName("extensionSchema")
+        .withLongOpt("extensionSchema")
+        .withDescription("Check pegasus extension schema annotation")
+        .create('e'));
   }
 
   public static void main(String[] args) throws Exception
@@ -152,6 +176,20 @@ public class PegasusSchemaSnapshotCompatibilityChecker
     {
       compatMode = CompatibilityOptions.Mode.SCHEMA;
     }
+
+    if(cl.hasOption('e'))
+    {
+      _checkExtensionSchemaAnnotation = true;
+    }
+
+    if (cl.hasOption("jar") && cl.hasOption("className"))
+    {
+     String handlerJarPaths = cl.getOptionValue("jar");
+     String classNames = cl.getOptionValue("className");
+     _handlers = getAnnotationHandlers(handlerJarPaths, classNames);
+    }
+
+    _checkPegasusSchemaAnnotation = (_handlers != null && _handlers.size() > 0);
 
     PegasusSchemaSnapshotCompatibilityChecker compatibilityChecker = new PegasusSchemaSnapshotCompatibilityChecker();
     for (int i = 1; i < prevSnapshotAndCurrSnapshotPairs.size(); i += 2)
@@ -230,6 +268,24 @@ public class PegasusSchemaSnapshotCompatibilityChecker
       result.getMessages().forEach(message -> _infoMap.addModelInfo(message));
     }
 
+    if (_checkPegasusSchemaAnnotation)
+    {
+      List<SchemaAnnotationHandler.AnnotationCompatibilityResult> annotationCompatibilityResults =
+          AnnotationCompatibilityChecker.checkPegasusSchemaCompatibility(preSchema, currSchema, _handlers);
+      for (SchemaAnnotationHandler.AnnotationCompatibilityResult annotationResult: annotationCompatibilityResults)
+      {
+        if (!annotationResult.getMessages().isEmpty())
+        {
+          annotationResult.getMessages().forEach(message -> _infoMap.addAnnotation(message));
+        }
+      }
+    }
+
+    if (_checkExtensionSchemaAnnotation)
+    {
+      //TODO: extension schema annotation check
+    }
+
     return _infoMap;
   }
 
@@ -280,7 +336,8 @@ public class PegasusSchemaSnapshotCompatibilityChecker
     final HelpFormatter formatter = new HelpFormatter();
     formatter.printHelp(120,
         PegasusSchemaSnapshotCompatibilityChecker.class.getSimpleName(),
-        "[compatibility_level], [compatibilityOption_mode], [report], [prevSnapshotDir], [currSnapshotDir]",
+        "[compatibility_level], [compatibilityOption_mode], [report], [prevSnapshotDir], [currSnapshotDir], "
+            + "[annotation_handler_jarPaths], [handler-classNames], [extensionSchema]",
         _options,
         "",
         true);
@@ -344,5 +401,54 @@ public class PegasusSchemaSnapshotCompatibilityChecker
       System.exit(1);
     }
     return null;
+  }
+
+  private static List<SchemaAnnotationHandler> getAnnotationHandlers(String handlerJarPaths, String classNames)
+  {
+    List<SchemaAnnotationHandler> handlers = new ArrayList<>();
+    ClassLoader classLoader = new URLClassLoader(parsePaths(handlerJarPaths)
+        .stream()
+        .map(str ->
+        {
+          try
+          {
+            return Paths.get(str).toUri().toURL();
+          }
+          catch (Exception e)
+          {
+            _logger.error("Parsing schema annotation handlers: URL {} parsing failed", str, e);
+            return null;
+          }
+        }).filter(Objects::nonNull).toArray(URL[]::new));
+
+    for (String className: parsePaths(classNames))
+    {
+      try
+      {
+        Class<?> handlerClass = Class.forName(className, false, classLoader);
+        SchemaAnnotationHandler handler = (SchemaAnnotationHandler) handlerClass.newInstance();
+        handlers.add(handler);
+      }
+      catch (Exception e)
+      {
+        _logger.error("Error instantiating handler class {} ", className, e);
+        return null;
+      }
+    }
+    return handlers;
+  }
+
+  private static List<String> parsePaths(String pathAsStr)
+  {
+    List<String> list = new ArrayList<>();
+    if (pathAsStr != null)
+    {
+      StringTokenizer tokenizer = new StringTokenizer(pathAsStr, DEFAULT_PATH_SEPARATOR);
+      while (tokenizer.hasMoreTokens())
+      {
+        list.add(tokenizer.nextToken());
+      }
+    }
+    return list;
   }
 }

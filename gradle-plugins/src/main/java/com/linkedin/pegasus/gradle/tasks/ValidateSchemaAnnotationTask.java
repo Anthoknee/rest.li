@@ -15,22 +15,16 @@
 */
 package com.linkedin.pegasus.gradle.tasks;
 
+import com.linkedin.pegasus.gradle.SchemaAnnotationHandlerClassUtil;
 import com.linkedin.pegasus.gradle.internal.ArgumentFileGenerator;
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.io.InputStream;
-import java.lang.annotation.Annotation;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
-import java.util.jar.JarEntry;
-import java.util.jar.JarInputStream;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.GradleException;
 import org.gradle.api.file.FileCollection;
@@ -62,12 +56,7 @@ import org.gradle.api.tasks.TaskAction;
 @CacheableTask
 public class ValidateSchemaAnnotationTask extends DefaultTask
 {
-  public static final String SCHEMA_HANDLER_JAVA_ANNOTATION = "RestLiSchemaAnnotationHandler";
-  private static final char FILE_SEPARATOR = File.separatorChar;
   private static final String DEFAULT_PATH_SEPARATOR = File.pathSeparator;
-  private static final char UNIX_FILE_SEPARATOR = '/';
-  private static final char PACKAGE_SEPARATOR = '.';
-  private static final String CLASS_SUFFIX = ".class";
   private ClassLoader _classLoader;
   private boolean _enableArgFile;
 
@@ -117,12 +106,7 @@ public class ValidateSchemaAnnotationTask extends DefaultTask
 
     getProject().getLogger().info("search for schema annotation handlers...");
 
-    List<String> foundClassNames = new ArrayList<>();
-    Set<String> scannedClass = new HashSet<>(); // prevent duplicate scans
-    for (File f : _handlerJarPath)
-    {
-      scanHandlersInClassPathJar(f, foundClassNames, scannedClass);
-    }
+    List<String> foundClassNames = SchemaAnnotationHandlerClassUtil.getAnnotationHandlerClassNames(_handlerJarPath, _classLoader, getProject());
 
     // For now, every schema annotation handler should be in its own module
     // if the number of found handlers doesn't match number of configured modules, will throw exception
@@ -158,90 +142,6 @@ public class ValidateSchemaAnnotationTask extends DefaultTask
                             javaExecSpec.args("--resolverPath");
                             javaExecSpec.args(resolverPathArg);
                           });
-  }
-
-  private void scanHandlersInClassPathJar(File f, List<String> foundClasses, Set<String> scannedClass)
-      throws IOException
-  {
-    if (!f.toURI().toString().toLowerCase().endsWith("jar"))
-    {
-      return;
-    }
-
-    try(
-        InputStream in = f.toURI().toURL().openStream();
-        JarInputStream jarIn = new JarInputStream(in);
-    )
-    {
-
-      for (JarEntry e = jarIn.getNextJarEntry(); e != null; e = jarIn.getNextJarEntry())
-      {
-        if (!e.isDirectory() && !scannedClass.contains(e.getName()))
-        {
-          scannedClass.add(e.getName());
-          checkHandlerAnnotation(toNativePath(e.getName()), foundClasses);
-        }
-        jarIn.closeEntry();
-      }
-    } catch (FileNotFoundException e)
-    {
-      // Skip if file not found
-      getProject().getLogger().error("Encountered unexpected File not found error", e);
-    }
-  }
-
-  private String toNativePath(final String path)
-  {
-    return path.replace(UNIX_FILE_SEPARATOR, FILE_SEPARATOR);
-  }
-
-  /**
-   * This method will check the java class annotation on the class instantiated by a className;
-   * It will search if that class has an annotation matching {@link SCHEMA_HANDLER_JAVA_ANNOTATION},
-   * if found, this class name will be added to "foundClasses" list.
-   * if exceptions or errors detected during instantiation of the class, this method will return without doing anything.
-   *
-   * @param name the name of class to be search annotation from.
-   * @param foundClasses a list of class names of the classes that contains {@link SCHEMA_HANDLER_JAVA_ANNOTATION}
-   */
-  private void checkHandlerAnnotation(String name, List<String> foundClasses)
-  {
-    if (name.endsWith(CLASS_SUFFIX))
-    {
-      int end = name.lastIndexOf(CLASS_SUFFIX);
-      String clazzPath = name.substring(0, end);
-      String clazzName = pathToName(clazzPath);
-
-      Class<?> clazz = null;
-      try
-      {
-        clazz = classForName(clazzName);
-      } catch (Exception | Error e)
-      {
-        getProject().getLogger().info("During search for annotation handlers, encountered an unexpected exception or error [{}] when instantiating the class, " +
-            "will skip checking this class: [{}]", e.getClass(), clazzName);
-        getProject().getLogger().debug("Unexpected exceptions or errors found during instantiating the class [{}], detailed error: ", clazzName, e);
-        return;
-      }
-      for (Annotation a : clazz.getAnnotations())
-      {
-        if (a.annotationType().getName().contains(SCHEMA_HANDLER_JAVA_ANNOTATION))
-        {
-          foundClasses.add(clazzName);
-          return;
-        }
-      }
-    }
-  }
-
-  private String pathToName(final String path)
-  {
-    return path.replace(FILE_SEPARATOR, PACKAGE_SEPARATOR);
-  }
-
-  private String toUnixPath(final String path)
-  {
-    return path.replace(FILE_SEPARATOR, UNIX_FILE_SEPARATOR);
   }
 
   public Class<?> classForName(final String name) throws ClassNotFoundException

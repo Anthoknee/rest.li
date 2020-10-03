@@ -18,6 +18,11 @@ package com.linkedin.data.schema.annotation;
 import com.linkedin.data.message.Message;
 import com.linkedin.data.message.MessageList;
 import com.linkedin.data.schema.DataSchema;
+import com.linkedin.data.schema.PathSpec;
+import com.linkedin.data.schema.RecordDataSchema;
+import com.linkedin.data.schema.UnionDataSchema;
+import com.linkedin.data.schema.compatibility.CompatibilityMessage;
+import com.linkedin.data.schema.compatibility.CompatibilityResult;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -144,6 +149,93 @@ public interface SchemaAnnotationHandler
     return new PathSpecBasedSchemaAnnotationVisitor(this);
   }
 
+  /**
+   * Check annotations changes are compatible or not
+   *
+   * @param olderResolvedProperties the older resolvedProperties
+   * @param newerResolvedProperties the newer resolvedProperties
+   * @param olderContext the older annotationCheck context
+   * @param newerContext the newer annotationCheck context
+   * @return AnnotationCompatibilityResult
+   */
+  default AnnotationCompatibilityResult annotationCompatibilityCheck(Map<String,Object> olderResolvedProperties, Map<String, Object> newerResolvedProperties,
+      AnnotationCheckContext olderContext, AnnotationCheckContext newerContext)
+  {
+    return new AnnotationCompatibilityResult();
+  }
+
+  /**
+   * AnnotationCheckContext which contains metadata information:
+   * dataSchema, schemaField, unionMember and pathToSchema.
+   */
+  class AnnotationCheckContext
+  {
+    DataSchema _dataSchema;
+    RecordDataSchema.Field _schemaField;
+    UnionDataSchema.Member _unionMember;
+    String[] _pathToSchema;
+
+    public DataSchema getDataSchema()
+    {
+      return _dataSchema;
+    }
+    public void setDataSchema(DataSchema recordDataSchema)
+    {
+      _dataSchema = recordDataSchema;
+    }
+
+    public RecordDataSchema.Field getSchemaField()
+    {
+      return _schemaField;
+    }
+    public void setSchemaField(RecordDataSchema.Field schemaField)
+    {
+      _schemaField = schemaField;
+    }
+
+    public UnionDataSchema.Member getUnionMember()
+    {
+     return _unionMember;
+    }
+    public void setUnionMember(UnionDataSchema.Member unionMember)
+    {
+      _unionMember = unionMember;
+    }
+    public String[] getPathToSchema()
+    {
+      return _pathToSchema;
+    }
+    public void setPathToSchema(ArrayDeque<String> pathToSchema)
+    {
+      _pathToSchema = pathToSchema.toArray(new String[0]);
+    }
+  }
+
+  /**
+   * AnnotationCompatibilityResult
+   * it contains a list of {@link CompatibilityMessage}
+   * CompatibilityMessage describes the change is compatible or not
+   */
+  class AnnotationCompatibilityResult implements CompatibilityResult
+  {
+    private final MessageList<CompatibilityMessage> _messages;
+
+    public AnnotationCompatibilityResult()
+    {
+      _messages = new MessageList<CompatibilityMessage>();
+    }
+
+    @Override
+
+    public Collection<CompatibilityMessage> getMessages() {
+      return _messages;
+    }
+
+    @Override
+    public boolean isError() {
+      return _messages.isError();
+    }
+  }
 
   /**
    * Result the {@link #resolve(List, ResolutionMetaData)} function should return after it is called

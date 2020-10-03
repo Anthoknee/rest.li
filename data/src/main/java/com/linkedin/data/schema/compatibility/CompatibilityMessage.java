@@ -60,7 +60,15 @@ public class CompatibilityMessage extends Message
     /**
      * Deleting an schema is incompatible change, it breaks old clients.
      */
-    BREAK_OLD_CLIENTS(true);
+    BREAK_OLD_CLIENTS(true),
+    /**
+     * Annotation incompatible change, which can be used in custom annotation compatibility check
+     */
+    ANNOTATION_INCOMPATIBLE_CHANGE(true),
+    /**
+     * Annotation compatible change, which can be used in custom annotation compatibility check
+     */
+    ANNOTATION_COMPATIBLE_CHANGE(false);
 
     private final boolean _error;
 

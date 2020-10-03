@@ -65,7 +65,9 @@ public class CompatibilityInfo
     PAGING_ADDED(Level.COMPATIBLE, "Method added paging support"),
     PAGING_REMOVED(Level.INCOMPATIBLE, "Method removed paging support"),
     SERVICE_ERROR_ADDED(Level.INCOMPATIBLE, "Service error \"%s\" now applies"),
-    SERVICE_ERROR_REMOVED(Level.COMPATIBLE, "Service error \"%s\" no longer applies");
+    SERVICE_ERROR_REMOVED(Level.COMPATIBLE, "Service error \"%s\" no longer applies"),
+    BREAK_OLD_CLIENTS(Level.INCOMPATIBLE, "Deleting an schema is incompatible change, it breaks old clients"),
+    ANNOTATION_INCOMPATIBLE_CHANGE(Level.INCOMPATIBLE, "%s");
 
     public String getDescription(Object[] parameters)
     {
